@@ -32,6 +32,33 @@
   }
   .topo,.principal,.visor{position:relative;z-index:1}
 
+  /* ---------- tela de entrada ---------- */
+  .portao{
+    position:fixed;inset:0;z-index:10;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:var(--papel);
+  }
+  body.trancado .portao{display:flex}
+  body.trancado .topo,
+  body.trancado .principal,
+  body.trancado .visor{display:none}
+  .chave{
+    background:var(--cartao);border:1px solid var(--linha);border-radius:var(--raio);
+    padding:32px;width:100%;max-width:360px;
+    box-shadow:0 24px 50px -34px rgba(19,41,43,.7);
+  }
+  .selo{
+    margin:0 0 18px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;
+    letter-spacing:.18em;text-transform:uppercase;color:#fff;background:var(--tinta);
+    display:inline-block;padding:5px 10px;border-radius:2px;
+  }
+  .chave h1{
+    font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;
+    font-size:34px;letter-spacing:.12em;text-transform:uppercase;margin:0;
+  }
+  .dizeres{margin:4px 0 26px;color:var(--tinta-fraca);font-size:14.5px}
+  .chave .botao{width:100%;justify-content:center;margin-top:6px}
+
   /* ---------- cabeçalho ---------- */
   .topo{
     display:flex;align-items:center;gap:18px;flex-wrap:wrap;
@@ -182,13 +209,32 @@
   }
 </style>
 </head>
-<body>
+<body class="trancado">
+
+<section class="portao" id="portao">
+  <form class="chave" id="chave" autocomplete="off">
+    <p class="selo">Acesso restrito</p>
+    <h1>Painel</h1>
+    <p class="dizeres">Entre para abrir os módulos.</p>
+    <div class="campo">
+      <label for="usuario">Login</label>
+      <input type="text" id="usuario" autocomplete="username" spellcheck="false" autofocus>
+    </div>
+    <div class="campo">
+      <label for="senha">Senha</label>
+      <input type="password" id="senha" autocomplete="current-password">
+    </div>
+    <button class="botao" type="submit">Entrar</button>
+    <p class="aviso" id="erro" hidden></p>
+  </form>
+</section>
 
 <header class="topo">
   <h1 class="marca">Painel <span>/ módulos</span></h1>
   <nav class="abas" role="tablist">
     <button id="abaModulos" role="tab" aria-selected="true">Módulos</button>
     <button id="abaIncluir" role="tab" aria-selected="false">Incluir projeto</button>
+    <button id="sair" title="Trancar o painel">Sair</button>
   </nav>
 </header>
 
@@ -252,6 +298,50 @@
 
 <script>
 /* ====================================================================
+   ENTRADA — login ADMIN, senha 2407.
+   Para trocar, gere o novo código em https://emn178.github.io/online-tools/sha256.html
+   digitando exatamente:  painel|LOGIN|SENHA   e cole o resultado abaixo.
+   ==================================================================== */
+const SEGREDO = "e08898c33df8fecc820bdd4eee2036f39b3262fdfd39d4cfff36c5eac40604c5";
+
+async function conferir(usuario, senha){
+  const texto = "painel|" + usuario.trim().toUpperCase() + "|" + senha;
+  const dados = new TextEncoder().encode(texto);
+  const soma  = await crypto.subtle.digest("SHA-256", dados);
+  return [...new Uint8Array(soma)].map(b => b.toString(16).padStart(2,"0")).join("") === SEGREDO;
+}
+
+function destrancar(){
+  document.body.classList.remove("trancado");
+  try { sessionStorage.setItem("painel.aberto","1"); } catch(e){}
+}
+
+document.getElementById("chave").addEventListener("submit", async e => {
+  e.preventDefault();
+  const erro = document.getElementById("erro");
+  const campoSenha = document.getElementById("senha");
+  const certo = await conferir(document.getElementById("usuario").value, campoSenha.value);
+  if (certo){
+    erro.hidden = true;
+    destrancar();
+  } else {
+    erro.textContent = "Login ou senha não conferem. Tente de novo.";
+    erro.hidden = false;
+    campoSenha.value = "";
+    campoSenha.focus();
+  }
+});
+
+document.getElementById("sair").addEventListener("click", () => {
+  try { sessionStorage.removeItem("painel.aberto"); } catch(e){}
+  location.reload();
+});
+
+try {
+  if (sessionStorage.getItem("painel.aberto") === "1") document.body.classList.remove("trancado");
+} catch(e){}
+
+/* ====================================================================
    LISTA FIXA DE MÓDULOS — o que está aqui aparece em qualquer aparelho.
    ==================================================================== */
 const MODULOS = [
@@ -268,8 +358,9 @@ const MODULOS = [
     id: "cotacao",
     nome: "Cotação",
     faixa: "Compras",
-    resumo: "Cotação de medicamentos por fornecedor, com preços preenchidos on-line e comparação.",
-    site: "https://jeffersontete-ui.github.io/cotacao/",
+    resumo: "Cotação de medicamentos por fornecedor, com planilha por distribuidora, desempate e pedidos.",
+    site: "https://cotacao-2jqljjxkg5kcwcgi2f5kfu.streamlit.app/?embed=true",
+    abrir: "https://cotacao-2jqljjxkg5kcwcgi2f5kfu.streamlit.app/",
     repo: "https://github.com/jeffersontete-ui/cotacao",
     cor: "#B0691A"
   }
@@ -305,6 +396,11 @@ function interpretar(url){
       ? "https://" + repo + "/"
       : "https://" + dono + ".github.io/" + repo + "/";
     return { nome: repo, site, repo: "https://github.com/" + dono + "/" + repo };
+  }
+  if (t.includes("streamlit.app")){
+    const base = "https://" + t;
+    const nome = t.split(".")[0].replace(/-[a-z0-9]{10,}$/,"");
+    return { nome, site: base + "/?embed=true", abrir: base + "/", repo: base };
   }
   if (t.includes(".github.io")){
     const p = t.split("/").filter(Boolean);
@@ -394,7 +490,7 @@ function abrir(id){
   if (!m) return;
   quadro.src = m.site;
   quadro.title = "Módulo " + m.nome;
-  novaAba.href = m.site;
+  novaAba.href = m.abrir || m.site;
   linkRepo.href = m.repo;
   barra.querySelectorAll(".aba").forEach(a =>
     a.setAttribute("aria-selected", String(a.dataset.id === id)));
@@ -501,7 +597,7 @@ document.getElementById("exportar").addEventListener("click", () => {
 extras.forEach(m => m.extra = true);
 desenhar(); montarAbas();
 const inicial = location.hash.replace("#","");
-if (inicial) abrir(inicial);
+if (inicial && !document.body.classList.contains("trancado")) abrir(inicial);
 </script>
 </body>
 </html>
