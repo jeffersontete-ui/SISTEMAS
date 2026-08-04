@@ -275,7 +275,7 @@
 
       <div class="acoes">
         <button class="botao" id="incluir">Incluir módulo</button>
-        <button class="botao vazado" id="exportar">Copiar lista para o arquivo</button>
+        <button class="botao vazado" id="exportar">Baixar modulos.json</button>
       </div>
 
       <p class="aviso" id="aviso" hidden></p>
@@ -283,9 +283,10 @@
     </div>
 
     <p class="nota">
-      Módulos incluídos por aqui ficam guardados neste navegador. Para valerem em qualquer
-      aparelho, use “Copiar lista para o arquivo”, cole o texto no lugar da lista MODULOS
-      dentro do index.html e suba o arquivo de novo no GitHub.
+      O módulo incluído aqui vale só neste navegador. Para valer em qualquer aparelho:
+      clique em <b>Baixar modulos.json</b> e suba esse arquivo no repositório SISTEMAS,
+      na mesma pasta do index.html. A partir daí o painel lê a lista de lá, e não precisa
+      mais mexer no index.html.
     </p>
   </section>
 
@@ -371,6 +372,17 @@ const CHAVE = "painel.modulos";
 
 /* ---------- guarda no navegador, sem quebrar se estiver bloqueado ---------- */
 let extras = [];
+let doArquivo = [];
+
+async function lerArquivo(){
+  try {
+    const r = await fetch("modulos.json?v=" + Date.now(), {cache:"no-store"});
+    if (!r.ok) return;
+    const lista = await r.json();
+    if (Array.isArray(lista)) doArquivo = lista;
+  } catch(e){ /* sem arquivo ainda, tudo bem */ }
+}
+
 function ler(){
   try { extras = JSON.parse(localStorage.getItem(CHAVE) || "[]"); }
   catch(e){ extras = []; }
@@ -381,7 +393,15 @@ function gravar(){
 }
 ler();
 
-const todos = () => MODULOS.concat(extras);
+const todos = () => {
+  const junto = [], vistos = new Set();
+  MODULOS.concat(doArquivo, extras).forEach(m => {
+    if (vistos.has(m.id)) return;
+    vistos.add(m.id);
+    junto.push(m);
+  });
+  return junto;
+};
 
 /* ---------- lê o link do GitHub ---------- */
 function interpretar(url){
@@ -584,18 +604,25 @@ document.getElementById("incluir").addEventListener("click", () => {
 document.getElementById("exportar").addEventListener("click", () => {
   const lista = todos().map(m => ({
     id:m.id, nome:m.nome, faixa:m.faixa||"Módulo", resumo:m.resumo||"",
-    site:m.site, repo:m.repo, cor:m.cor
+    site:m.site, abrir:m.abrir||m.site, repo:m.repo, cor:m.cor
   }));
-  saida.value = "const MODULOS = " + JSON.stringify(lista, null, 2) + ";";
+  const texto = JSON.stringify(lista, null, 2);
+  saida.value = texto;
   saida.hidden = false;
-  saida.select();
-  try { document.execCommand("copy"); mostrar("Lista copiada. Cole no lugar da lista MODULOS dentro do index.html.", true); }
-  catch(e){ mostrar("Copie o texto abaixo e cole no lugar da lista MODULOS dentro do index.html.", true); }
+
+  const url = URL.createObjectURL(new Blob([texto], {type:"application/json"}));
+  const link = document.createElement("a");
+  link.href = url; link.download = "modulos.json";
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+  mostrar("Arquivo modulos.json baixado. Suba ele no repositório, na mesma pasta do index.html.", true);
 });
 
 /* ---------- início ---------- */
 extras.forEach(m => m.extra = true);
 desenhar(); montarAbas();
+lerArquivo().then(() => { desenhar(); montarAbas(); });
 const inicial = location.hash.replace("#","");
 if (inicial && !document.body.classList.contains("trancado")) abrir(inicial);
 </script>
