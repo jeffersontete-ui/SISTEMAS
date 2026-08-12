@@ -114,7 +114,8 @@
   .meta a{color:var(--cor);text-decoration:none;border-bottom:1px solid transparent}
   .meta a:hover{border-bottom-color:var(--cor)}
   .acoesCartao{
-    position:absolute;top:38px;right:10px;display:flex;gap:4px;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;
+    padding:7px 10px;border-bottom:1px dashed var(--linha);background:rgba(19,41,43,.04);
   }
   .miniBotao{
     border:1px solid var(--linha);background:#fff;color:var(--tinta-fraca);
@@ -536,7 +537,7 @@ function desenhar(){
       });
       acoes.appendChild(tirar);
 
-      cartao.appendChild(acoes);
+      cartao.insertBefore(acoes, cartao.querySelector(".corpo"));
     }
 
     cartao.addEventListener("click", e => {
