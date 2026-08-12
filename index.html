@@ -2,8 +2,16 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Painel — Módulos</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#13292B">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Painel">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
@@ -87,7 +95,7 @@
   /* ---------- conteúdo ---------- */
   .principal{flex:1;padding:30px 24px 48px;max-width:1080px;width:100%;margin:0 auto}
   .painel[hidden]{display:none}
-  .grade{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .grade{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr))}
 
   .cartao{
     display:flex;flex-direction:column;text-align:left;position:relative;
@@ -213,7 +221,10 @@
     .principal{padding:22px 16px 36px}
     .topo{padding:16px 16px 0}
     .abas{margin-left:0;width:100%;overflow-x:auto}
-    .barra .direita{margin-left:0;width:100%}
+    .barra{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .barra .direita{margin-left:0}
+    .miniBotao{padding:7px 11px;font-size:11px}
+    .cores label{width:38px;height:38px}
   }
   @media (prefers-reduced-motion:reduce){
     .cartao{transition:none}.cartao:hover{transform:none}
@@ -245,6 +256,7 @@
   <nav class="abas" role="tablist">
     <button id="abaModulos" role="tab" aria-selected="true">Módulos</button>
     <button id="abaIncluir" role="tab" aria-selected="false">Incluir projeto</button>
+    <button id="instalar" title="Instalar o painel neste aparelho" hidden>Instalar app</button>
     <button id="sair" title="Trancar o painel">Sair</button>
   </nav>
 </header>
@@ -360,7 +372,10 @@ try {
 } catch(e){}
 
 /* ====================================================================
-   LISTA FIXA DE MÓDULOS — o que está aqui aparece em qualquer aparelho.
+   MÓDULOS CURADOS — prioridade sobre o que a API do GitHub trouxer
+   (útil quando o endereço certo não é o padrão github.io, como na
+   Cotação, que abre num app Streamlit). Os demais repositórios da
+   conta aparecem sozinhos, buscados ao vivo logo abaixo.
    ==================================================================== */
 const MODULOS = [
   {
@@ -410,9 +425,50 @@ function gravar(){
 }
 ler();
 
+/* ====================================================================
+   REPOSITÓRIOS DA CONTA — busca ao vivo na API pública do GitHub, para
+   que todo repositório publicado apareça aqui sem precisar editar este
+   arquivo. Guarda uma cópia em cache para funcionar offline (PWA).
+   ==================================================================== */
+const CONTA = "jeffersontete-ui";
+const CHAVE_CACHE = "painel.repos.cache";
+let autoRepos = [];
+
+function corPara(nome){
+  let h = 0;
+  for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
+  return PALETA[h % PALETA.length];
+}
+
+async function buscarRepositorios(){
+  try {
+    const r = await fetch("https://api.github.com/users/" + CONTA + "/repos?per_page=100&sort=updated", {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!r.ok) throw new Error("api " + r.status);
+    const lista = await r.json();
+    autoRepos = lista
+      .filter(repo => !repo.fork && !repo.archived && repo.has_pages && repo.name.toLowerCase() !== "sistemas")
+      .sort((a,b) => a.name.localeCompare(b.name))
+      .map(repo => ({
+        id: repo.name.toLowerCase(),
+        nome: repo.name,
+        faixa: repo.language || "Módulo",
+        resumo: repo.description || "Sem descrição.",
+        site: (repo.homepage && repo.homepage.trim()) || ("https://" + CONTA + ".github.io/" + repo.name + "/"),
+        repo: repo.html_url,
+        cor: corPara(repo.name)
+      }));
+    try { localStorage.setItem(CHAVE_CACHE, JSON.stringify(autoRepos)); } catch(e){}
+  } catch(e){
+    try { autoRepos = JSON.parse(localStorage.getItem(CHAVE_CACHE) || "[]"); }
+    catch(_){ autoRepos = []; }
+  }
+}
+
 const todos = () => {
   const junto = [], vistos = new Set();
-  MODULOS.concat(doArquivo, extras).forEach(m => {
+  MODULOS.concat(autoRepos, doArquivo, extras).forEach(m => {
     if (vistos.has(m.id)) return;
     vistos.add(m.id);
     junto.push(m);
@@ -775,9 +831,28 @@ document.getElementById("exportar").addEventListener("click", () => {
 /* ---------- início ---------- */
 extras.forEach(m => m.extra = true);
 desenhar(); montarAbas();
-lerArquivo().then(() => { desenhar(); montarAbas(); });
+Promise.all([buscarRepositorios(), lerArquivo()]).then(() => { desenhar(); montarAbas(); });
 const inicial = location.hash.replace("#","");
 if (inicial && !document.body.classList.contains("trancado")) abrir(inicial);
+
+/* ---------- instalação no celular (PWA) ---------- */
+if ("serviceWorker" in navigator){
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+let pedidoInstalar = null;
+const botaoInstalar = document.getElementById("instalar");
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  pedidoInstalar = e;
+  botaoInstalar.hidden = false;
+});
+botaoInstalar.addEventListener("click", async () => {
+  if (!pedidoInstalar) return;
+  botaoInstalar.hidden = true;
+  pedidoInstalar.prompt();
+  pedidoInstalar = null;
+});
+window.addEventListener("appinstalled", () => { botaoInstalar.hidden = true; });
 </script>
 </body>
 </html>
