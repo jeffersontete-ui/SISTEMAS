@@ -113,13 +113,23 @@
   }
   .meta a{color:var(--cor);text-decoration:none;border-bottom:1px solid transparent}
   .meta a:hover{border-bottom-color:var(--cor)}
-  .tirar{
-    position:absolute;top:38px;right:10px;border:1px solid var(--linha);background:#fff;
-    color:var(--tinta-fraca);border-radius:var(--raio);cursor:pointer;
-    font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;
-    text-transform:uppercase;padding:4px 8px;
+  .acoesCartao{
+    position:absolute;top:38px;right:10px;display:flex;gap:4px;
   }
-  .tirar:hover{color:var(--alerta);border-color:var(--alerta)}
+  .miniBotao{
+    border:1px solid var(--linha);background:#fff;color:var(--tinta-fraca);
+    border-radius:var(--raio);cursor:pointer;
+    font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;padding:4px 8px;line-height:1.4;
+  }
+  .miniBotao:hover{color:var(--tinta);border-color:var(--tinta-fraca)}
+  .miniBotao:focus-visible{outline:3px solid var(--foco);outline-offset:1px}
+  .miniBotao:disabled{opacity:.35;cursor:default}
+  .miniBotao:disabled:hover{color:var(--tinta-fraca);border-color:var(--linha)}
+  .miniBotao.perigo:hover{color:var(--alerta);border-color:var(--alerta)}
+
+  .campoBusca{max-width:360px;margin-bottom:20px}
+  .vazio{color:var(--tinta-fraca);font-size:14.5px;padding:8px 0 24px}
 
   /* ---------- formulário ---------- */
   .forma{
@@ -241,7 +251,12 @@
 <main class="principal">
 
   <section class="painel" id="painelModulos">
+    <div class="campoBusca">
+      <label for="busca">Buscar módulo</label>
+      <input type="text" id="busca" placeholder="Nome, descrição ou categoria" autocomplete="off" spellcheck="false">
+    </div>
     <div class="grade" id="grade"></div>
+    <p class="vazio" id="vazio" hidden>Nenhum módulo encontrado com esse termo.</p>
     <p class="nota" id="nota"></p>
   </section>
 
@@ -275,6 +290,7 @@
 
       <div class="acoes">
         <button class="botao" id="incluir">Incluir módulo</button>
+        <button class="botao vazado" id="cancelarEdicao" type="button" hidden>Cancelar edição</button>
         <button class="botao vazado" id="exportar">Baixar modulos.json</button>
       </div>
 
@@ -432,14 +448,45 @@ function interpretar(url){
 }
 
 /* ---------- tela dos módulos ---------- */
-const grade = document.getElementById("grade");
-const nota  = document.getElementById("nota");
+const grade   = document.getElementById("grade");
+const nota    = document.getElementById("nota");
+const vazio   = document.getElementById("vazio");
+const campoBusca = document.getElementById("busca");
+let filtro = "";
+
+function normalizar(s){
+  return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+}
+function filtrados(){
+  if (!filtro) return todos();
+  const f = normalizar(filtro);
+  return todos().filter(m =>
+    normalizar(m.nome).includes(f) ||
+    normalizar(m.resumo).includes(f) ||
+    normalizar(m.faixa).includes(f));
+}
+campoBusca.addEventListener("input", () => {
+  filtro = campoBusca.value.trim();
+  desenhar();
+});
+
+function mover(pos, dir){
+  const alvo = pos + dir;
+  if (alvo < 0 || alvo >= extras.length) return;
+  [extras[pos], extras[alvo]] = [extras[alvo], extras[pos]];
+  gravar(); desenhar(); montarAbas();
+}
 
 function desenhar(){
   grade.innerHTML = "";
-  todos().forEach(m => {
-    const cartao = document.createElement("button");
+  const lista = filtrados();
+
+  lista.forEach(m => {
+    const cartao = document.createElement("div");
     cartao.className = "cartao";
+    cartao.tabIndex = 0;
+    cartao.setAttribute("role","button");
+    cartao.setAttribute("aria-label","Abrir módulo " + m.nome);
     cartao.style.setProperty("--cor", m.cor);
     cartao.innerHTML = `
       <div class="tarja"><span>${m.faixa || "Módulo"}</span><span>uso interno</span></div>
@@ -451,26 +498,72 @@ function desenhar(){
           <a href="${m.repo}" target="_blank" rel="noopener">repositório ↗</a>
         </div>
       </div>`;
+
     if (m.extra){
+      const acoes = document.createElement("div");
+      acoes.className = "acoesCartao";
+      const pos = extras.findIndex(x => x.id === m.id);
+
+      if (extras.length > 1){
+        const cima = document.createElement("button");
+        cima.className = "miniBotao"; cima.textContent = "↑"; cima.title = "Mover para cima";
+        cima.setAttribute("aria-label","Mover " + m.nome + " para cima");
+        cima.disabled = pos <= 0;
+        cima.addEventListener("click", ev => { ev.stopPropagation(); mover(pos, -1); });
+        acoes.appendChild(cima);
+
+        const baixo = document.createElement("button");
+        baixo.className = "miniBotao"; baixo.textContent = "↓"; baixo.title = "Mover para baixo";
+        baixo.setAttribute("aria-label","Mover " + m.nome + " para baixo");
+        baixo.disabled = pos >= extras.length - 1;
+        baixo.addEventListener("click", ev => { ev.stopPropagation(); mover(pos, 1); });
+        acoes.appendChild(baixo);
+      }
+
+      const editar = document.createElement("button");
+      editar.className = "miniBotao"; editar.textContent = "editar";
+      editar.title = "Editar este módulo";
+      editar.addEventListener("click", ev => { ev.stopPropagation(); editarModulo(m.id); });
+      acoes.appendChild(editar);
+
       const tirar = document.createElement("button");
-      tirar.className = "tirar"; tirar.textContent = "tirar";
+      tirar.className = "miniBotao perigo"; tirar.textContent = "tirar";
       tirar.title = "Tirar este módulo do painel";
       tirar.addEventListener("click", ev => {
         ev.stopPropagation();
         extras = extras.filter(x => x.id !== m.id);
         gravar(); desenhar(); montarAbas();
       });
-      cartao.appendChild(tirar);
+      acoes.appendChild(tirar);
+
+      cartao.appendChild(acoes);
     }
+
     cartao.addEventListener("click", e => {
-      if (e.target.closest("a") || e.target.closest(".tirar")) return;
+      if (e.target.closest("a") || e.target.closest(".miniBotao")) return;
       abrir(m.id);
+    });
+    cartao.addEventListener("keydown", e => {
+      if (e.target !== cartao) return;
+      if (e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        abrir(m.id);
+      }
     });
     grade.appendChild(cartao);
   });
-  const n = todos().length;
-  nota.textContent = n + (n === 1 ? " módulo no painel." : " módulos no painel.") +
-    " Clique para abrir aqui dentro; Esc volta para esta tela.";
+
+  const total = todos().length;
+  const mostrando = lista.length;
+  vazio.hidden = mostrando !== 0;
+  nota.hidden = mostrando === 0;
+  if (filtro){
+    nota.textContent = mostrando + " de " + total + (total === 1 ? " módulo" : " módulos") +
+      " — clique para abrir; Esc volta para esta tela.";
+  } else {
+    nota.textContent = total + (total === 1 ? " módulo no painel." : " módulos no painel.") +
+      " Clique para abrir aqui dentro; Esc volta para esta tela.";
+  }
 }
 
 /* ---------- visor ---------- */
@@ -545,13 +638,54 @@ abaModulos.addEventListener("click", () => trocarAba("modulos"));
 abaIncluir.addEventListener("click", () => trocarAba("incluir"));
 
 /* ---------- formulário ---------- */
-const campoLink   = document.getElementById("link");
-const campoNome   = document.getElementById("nome");
-const campoResumo = document.getElementById("resumo");
-const previa      = document.getElementById("previa");
-const aviso       = document.getElementById("aviso");
-const saida       = document.getElementById("saida");
-const cores       = document.getElementById("cores");
+const campoLink      = document.getElementById("link");
+const campoNome      = document.getElementById("nome");
+const campoResumo    = document.getElementById("resumo");
+const previa         = document.getElementById("previa");
+const aviso          = document.getElementById("aviso");
+const saida          = document.getElementById("saida");
+const cores          = document.getElementById("cores");
+const botaoIncluir   = document.getElementById("incluir");
+const botaoCancelar  = document.getElementById("cancelarEdicao");
+const tituloForma    = document.querySelector("#painelIncluir .forma h2");
+const textoForma     = document.querySelector("#painelIncluir .forma > p");
+let editandoId = null;
+
+function editarModulo(id){
+  const m = extras.find(x => x.id === id);
+  if (!m) return;
+  editandoId = id;
+  campoLink.value = m.repo;
+  campoNome.value = m.nome;
+  campoResumo.value = m.resumo || "";
+  const radio = cores.querySelector('input[value="' + m.cor + '"]');
+  if (radio) radio.checked = true;
+  const d = interpretar(m.repo);
+  previa.innerHTML = "Abre em: <b>" + (d ? d.site : m.site) + "</b>";
+  aviso.hidden = true;
+  botaoIncluir.textContent = "Salvar alterações";
+  botaoCancelar.hidden = false;
+  tituloForma.textContent = "Editar projeto";
+  textoForma.textContent = "Altere os campos e clique em Salvar alterações.";
+  trocarAba("incluir");
+  campoNome.focus();
+}
+
+function sairDaEdicao(){
+  editandoId = null;
+  botaoIncluir.textContent = "Incluir módulo";
+  botaoCancelar.hidden = true;
+  tituloForma.textContent = "Incluir projeto";
+  textoForma.textContent = "Cole o endereço do repositório no GitHub. O painel descobre sozinho o endereço publicado.";
+  campoLink.value = ""; campoNome.value = ""; campoResumo.value = "";
+  campoNome.placeholder = "preenchido pelo link";
+  previa.innerHTML = "Abre em: <b>—</b>";
+}
+
+botaoCancelar.addEventListener("click", () => {
+  sairDaEdicao();
+  aviso.hidden = true;
+});
 
 PALETA.forEach((cor,i) => {
   const radio = document.createElement("input");
@@ -576,9 +710,27 @@ function mostrar(texto, ok){
   aviso.hidden = false;
 }
 
-document.getElementById("incluir").addEventListener("click", () => {
+botaoIncluir.addEventListener("click", () => {
   const d = interpretar(campoLink.value);
   if (!d) return mostrar("Não consegui ler esse endereço. Use algo como https://github.com/dono/repositorio");
+
+  if (editandoId){
+    const alvo = extras.find(x => x.id === editandoId);
+    if (!alvo){ sairDaEdicao(); return; }
+    alvo.nome = (campoNome.value || d.nome).trim();
+    alvo.resumo = campoResumo.value.trim();
+    alvo.site = d.site; alvo.repo = d.repo;
+    if (d.abrir) alvo.abrir = d.abrir; else delete alvo.abrir;
+    alvo.cor = document.querySelector("input[name=cor]:checked").value;
+
+    const guardou = gravar();
+    desenhar(); montarAbas();
+    sairDaEdicao();
+    mostrar(guardou
+      ? "Alterações salvas."
+      : "Alterações salvas só nesta sessão — este navegador não deixou guardar.", true);
+    return;
+  }
 
   const id = d.nome.toLowerCase().replace(/[^a-z0-9]+/g,"-");
   if (todos().some(m => m.id === id)) return mostrar("Esse módulo já está no painel.");
